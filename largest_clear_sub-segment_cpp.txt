@@ -1,0 +1,515 @@
+//******************************************************************************
+// The task:
+//
+// The program accepts an input text file in the following format:
+// N >= 0 lines each holding 2 different decimal floating-point values x1, x2
+// taken from the segment [0 1] represent a numerical segment
+// [x1 x2], if x1 < x2 or unit of 2 segments [x1 1] and [0 x2], if x1 > x2
+// (named cyclic segment).
+//
+// The program needs to compute the largest cyclic sub-segment of [0, 1] that is
+// clear from any of the input segments.
+// The output is formatted as a pair of floating-point values.
+//
+//
+// The proposed solution:
+//
+// The program reads text file line by line and manages the binary tree contains
+// in its leaves the information about the remaining clear sub-segments.
+//
+// After each iteration (reading of the new file's line and updating the tree),
+// each leaf contains the information about one clear sub-segment
+// (the possible clear cyclic sub-segment is represented in this tree by
+// two separated clear sub-segments included in two separate leaves).
+//
+// Each clear sub-segment [x1 x2] (x1 < x2) represented in the leaf of the tree
+// by two its bounds (x1, x2) and the length (x2 - x1).
+//
+// The tree is updated according to position of the clear sub-segments:
+// the closer to zero, the further to the left
+// Note: from iteration to iteration the clear sub-segments could only decrease,
+// so there are no overlap between clear sub-segments).
+// Accordingly, both parts of possible clear cyclic sub-segment are located in
+// the leftist and the rightist leaves of this tree.
+//
+// At the end of the input accept, the program searches the tree to get the
+// largest clear sub-segment and also to get clear sub-segments are located in
+// both - the leftist and the rightist leaves (accordingly, the leftist and the
+// rightist clear sub-segments).
+//
+// If the leftist and the rightist clear sub-segments represent two parts of
+// cyclic sub-segment (i.e. if the left bound of the leftist clear sub-segment
+// is 0.0, and the right bound of the rightist clear sub-segment is 1.0),
+// the program compares the largest clear sub-segment with the
+// cyclic sub-segment (the unit of these two parts) and selects the largest
+// of them - the wanted largest clear cyclic sub-segment.
+//
+// If the input file is empty, the program returns [0.0 1.0].
+// If there is any free sub-segment, the program returns [0.0 0.0].
+//
+// The time complexity of the program is O(Nxlog(N) + N):
+// O(Nxlog(N)) - read file of N lines line by line and manage the binary tree;
+// O(N) - search the tree to get the largest clear sub-segment.
+//
+// Some principal notes about the binary tree management:
+//
+// Each node in the binary tree includes:
+// 1. bounds of segment and its length: s.x1, s.x2, sx2-s.x1
+// 2. three pointers: to father node, to left son node and to right son node.
+//
+// The root has no father, leaves has no children (null pointers).
+// If node is not leaf, it always has two children.
+//
+// All updated clear sub-segments are located in leaves (cyclic sub-segment is
+// located in two separate segments - the leftist one and the rightist one).
+//
+// At the start the tree is initiated with the one node (root) includes
+// the full clear segment [0.0 1.0].
+//
+// In each iteration new pair of values x1, x2 (x1 < x2, because cyclic segment
+// is treated as two separate segments) used to update the tree as below:
+//
+// 1. If there is no node - create node with given bounds of
+//    the clear sub-segment, update the pointer to father.
+//
+// 2. If node exists, process it according the mutual location of
+//    the new pair of values (bounds of closed segment): x1, x2 and
+//    bounds of clear sub-segment saved in the node: s.x1, s.x2.
+//
+//    Variants:
+//
+//    a. no overlap, [x1,x2] fully left from the node segment
+//       (x1 < x2 <= s.x1 < s.x2): do nothing,
+//       note: don't enter such node - treat it at its father node.
+//
+//    b. partial overlap, x2 inside the node segment
+//       (x1 <= s.x1 < x2 < s.x2): change s.x1 = x2, update segment's length.
+//
+//    c. "hostile takeover", [x1,x2] includes node segment
+//       (x1 <= s.x1 < s.x2 <= x2): delete node with all its children,
+//       note: don't enter such node - treat it at its father node.
+//
+//       important: after the node was deleted its brother node becomes
+//                  the father node instead previous father node,
+//                  previous father node must be deleted,
+//                  all needed pointers are updated properly.
+//
+//    d. fully inside, [x1,x2] fully inside the node segment
+//       (s.x1 < x1 < x2 < s.x2): if node is leaf,
+//       insert two new children with appropriate subsegments,
+//       note: the new pair of values x1, x2 divides the previous
+//       clear sub-segment for two new clear sub-segments.
+//
+//    e. partial overlap, x1 inside the node segment
+//       (s.x1 < x1 < s.x2 <= x2): change s.x2 = x1, update segment's length
+//
+//    f. no overlap, [x1,x2] fully right from the node segment
+//       (s.x1 < s.x2 <= x1 < x2): do nothing,
+//       note: don't enter such node - treat it at its father node.
+//
+// 3. At the end of the reading text file line by line, there is binary tree
+//    with leaves includes remaining clear sub-segments.
+//    Search the tree for the largest segment and compare it to
+//    clear cyclic sub-segment (if exists) to get
+//    the wanted largest cyclic sub-segment.
+//
+//******************************************************************************
+
+#include <iostream>
+#include <fstream>
+#include <sstream>
+
+using namespace std;
+
+//******************************************************************************
+// Initial segment bounds definition
+//******************************************************************************
+
+#define SEG_MIN 0.0
+#define SEG_MAX 1.0
+
+//******************************************************************************
+// Struct for the clear sub-segment information
+//******************************************************************************
+
+struct Segment
+{
+    // 0 <= x1 < x2 <= 1
+    float x1; // left bound
+    float x2; // right bound
+    float length; // x2 - x1, length
+};
+
+//******************************************************************************
+// Class for the node in the tree, includes the sub-segment
+//******************************************************************************
+
+class Node
+{
+public:
+    Segment segment{};
+    Node* left;
+    Node* right;
+    Node* father;
+
+    Node(Node* father, float x1, float x2) {
+        this->segment = {x1, x2, x2-x1};
+        this->left = nullptr;
+        this->right = nullptr;
+        this->father = father;
+    }
+
+};
+
+//******************************************************************************
+// Class for the tree of the nodes
+//******************************************************************************
+
+class Tree
+{
+private:
+    Node* root;
+
+public:
+    //**************************************************************************
+    // Constructor
+    //**************************************************************************
+    Tree()
+    {
+        this->root = nullptr;
+    }
+
+    void insert(float x1, float x2)
+    {
+        this->root = insert(this->root, nullptr, x1, x2);
+    }
+
+    Node* insert(Node* node, Node* father, float x1, float x2)
+    {
+        //**********************************************************************
+        // 1. Create node with given bounds of the clear sub-segment,
+        //    update the pointer to father.
+        //**********************************************************************
+        if (node == nullptr) {
+            return new Node(father, x1, x2);
+        }
+        //**********************************************************************
+        else {
+            //******************************************************************
+            // 2. Process the node according the mutual location of
+            //    the new pair of values (bounds of closed segment): x1, x2 and
+            //    bounds of clear sub-segment saved in the node: s.x1, s.x2.
+            //******************************************************************
+            //
+            //******************************************************************
+            // 2.1 x1 <= s.x1 < x2 < s.x2:
+            //     change s.x1 = x2, update segment's length.
+            //******************************************************************
+            if (x1 <= node->segment.x1 && node->segment.x1 < x2
+                                       && x2 < node->segment.x2) {
+              node->segment.x1 = x2;
+              node->segment.length = node->segment.x2 - node->segment.x1;
+            }
+            //******************************************************************
+            // 2.2 s.x1 < x1 < x2 < s.x2:
+            //     if node is leaf,
+            //     insert two new children with appropriate subsegments,
+            //
+            // note: the new pair of values x1, x2 divides the previous
+            //       clear sub-segment for two new clear sub-segments.
+            //******************************************************************
+            if (node->segment.x1 < x1 && x2 < node->segment.x2) {
+              // If node is leaf,
+              // insert 2 new children with appropriate sub-segment's bounds
+              if (node->left == nullptr && node->right == nullptr) {
+                node->left = insert(node->left, node, node->segment.x1, x1);
+                node->right = insert(node->right, node, x2, node->segment.x2);
+              }
+            }
+            //******************************************************************
+            // 2.3 s.x1 < x1 < s.x2 <= x2:
+            //     change s.x2 = x1, update segment's length.
+            //******************************************************************
+            if (node->segment.x1 < x1 && x1 < node->segment.x2 && node->segment.x2 <= x2) {
+              node->segment.x2 = x1;
+              node->segment.length = node->segment.x2 - node->segment.x1;
+            }
+            //******************************************************************
+            // 2.4 x1 <= s.x1 < s.x2 <= x2: delete node with all its children
+            //
+            // note: this treatment is done for children, the only case
+            //       this is done to node itself, if the node is root.
+            //
+            //******************************************************************
+            // 2.5  If node is root (node with father is checked by its father),
+            //      there is no more free segments:
+            //      delete entire tree and exit.
+            //******************************************************************
+            if ((x1 <= node->segment.x1) && (node->segment.x2 <= x2)) {
+              deleteTree(node);
+              node = nullptr;
+              return node;
+            }
+            //******************************************************************
+            // 2.6  If the left son segment is fully inside [x1,x2], i.e.
+            //      x1 <= left son's s.x1 < left son's s.x2 <= x2:
+            //      delete the left son with all its children,
+            //      replace the node with its right son, delete the node,
+            //
+            // note: by definition node always has any (leaf) or two children).
+            //******************************************************************
+            if (node->left != nullptr && (x1 <= node->left->segment.x1)
+                && (node->left->segment.x2 <= x2)) {
+
+              // Delete the left son
+              deleteTree(node->left);
+              node->left = nullptr;
+
+              // Replace node with its right son
+              node->right->father = node->father;
+
+              // If father exists (root node don't have father node)
+              if (node->father != nullptr) {
+                // Check if the node was left or right son of its father
+                // and connect its right son appropriately
+                if (node->father->left == node) {
+                  node->father->left = node->right;
+                } else {
+                  node->father->right = node->right;
+                }
+
+                // Delete the node
+                node->right = nullptr;
+                deleteTree(node);
+
+                return node->father->right;
+              }
+              else {
+                // If node is root (don't have father node),
+                // its right son becomes to be root of the tree
+                this->root = node->right;
+
+                // Delete the node
+                node->right = nullptr;
+                deleteTree(node);
+
+                return this->root;
+              }
+            }
+            //******************************************************************
+            // 2.7  If the right son segment is fully inside [x1,x2], i.e.
+            //      x1 <= right son's s.x1 < right son's s.x2 <= x2:
+            //      delete the right son with all its children,
+            //      replace the node with its left son, delete the node,
+            //
+            // note: by definition node always has any (leaf) or two children).
+            //******************************************************************
+            if (node->right != nullptr && (x1 <= node->right->segment.x1)
+                && (node->right->segment.x2 <= x2)) {
+
+              // Delete the right son
+              deleteTree(node->right);
+              node->right = nullptr;
+
+              // Replace node with its left son
+              node->left->father = node->father;
+
+              // If father exists (root node don't have father node)
+              if (node->father != nullptr) {
+                // Check if the node was left or right son of its father
+                // and connect its left son appropriately
+                if (node->father->left == node) {
+                  node->father->left = node->left;
+                } else {
+                  node->father->right = node->left;
+                }
+
+                // Delete the node
+                node->left = nullptr;
+                deleteTree(node);
+
+                return node->father->left;
+              }
+              else {
+                // If node is root (don't have father),
+                // its left son become to be root of the tree
+                this->root = node->left;
+
+                // Delete the node
+                node->left = nullptr;
+                deleteTree(node);
+
+                return this->root;
+              }
+            }
+            //******************************************************************
+            // 3. Search the children, if necessary.
+            //******************************************************************
+            //
+            //******************************************************************
+            // 3.1 Go down only if there is the left son and
+            //     [x1,x2] overlaps with the left son's [s.x1,s.x2], i.e.
+            //     !(x1 < x2 <= s.x1 < s.x2 || s.x1 < s.x2 <= x1 < x2),
+            //     for left son's segment,
+            //     i.e. (s.x1 < x2) && (x1 < s.x2 ), for left son's segment.
+            //******************************************************************
+            if (node->left != nullptr && (node->left->segment.x1 < x2) &&
+                (x1 < node->left->segment.x2)) {
+              node->left = insert(node->left, node, x1, x2);
+            }
+            //******************************************************************
+            // 3.2 Go down only if there is the right son and
+            //     [x1,x2] overlaps with the right son's [s.x1,s.x2], i.e.
+            //     !(x1 < x2 <= s.x1 < s.x2 || s.x1 < s.x2 <= x1 < x2),
+            //     for right son's segment,
+            //     i.e. (s.x1 < x2) && (x1 < s.x2 ), for right son's segment.
+            //******************************************************************
+            if (node->right != nullptr && (node->right->segment.x1 < x2) &&
+                (x1 < node->right->segment.x2)) {
+              node->right = insert(node->right, node, x1, x2);
+            }
+        }
+        return node;
+    }
+    //**************************************************************************
+
+    //**************************************************************************
+    // Destructor
+    //**************************************************************************
+    ~Tree()
+    {
+        deleteTree(this->root);
+    }
+
+    void deleteTree(Node* node)
+    {
+        if (node == nullptr) {
+            return;
+        }
+
+        // Recursively delete the left and right children
+        deleteTree(node->left);
+        deleteTree(node->right);
+
+        // Delete the node
+        delete node;
+    }
+    //**************************************************************************
+
+    //**************************************************************************
+    // Get the root of the tree
+    //**************************************************************************
+    Node* getRoot()
+    {
+        return this->root;
+    }
+    //**************************************************************************
+
+    //**************************************************************************
+    // Get the largest segment.
+    //
+    // If the leftist clear sub-segment begins from SEG_MIN and
+    // rightist clear sub-segment ends with SEG_MAX, there is also
+    // the cyclic clear sub-segment.
+    // The large from the largest clear sub-segment and cyclic clear sub-segment
+    // (the sum of the leftist and rightist clear sub-segments)
+    // is the largest clear sub-segment.
+    //**************************************************************************
+    [[nodiscard]] Segment getLargestSegment() const
+    {
+        Segment largestSegment = {SEG_MIN, SEG_MIN, SEG_MIN - SEG_MIN};
+        Segment leftistSegment = {SEG_MAX, SEG_MAX, SEG_MAX - SEG_MAX};
+        Segment rightistSegment = {SEG_MIN, SEG_MIN, SEG_MIN - SEG_MIN};
+
+        updateSegments(this->root, &largestSegment, &leftistSegment, &rightistSegment);
+
+        if (leftistSegment.x1 == SEG_MIN && rightistSegment.x2 == SEG_MAX) {
+
+            float totalCyclicLength = leftistSegment.length + rightistSegment.length;
+
+            if (totalCyclicLength > largestSegment.length) {
+                largestSegment.x1 = rightistSegment.x1;
+                largestSegment.x2 = leftistSegment.x2;
+                largestSegment.length = totalCyclicLength;
+            }
+        }
+        return largestSegment;
+    }
+    //**************************************************************************
+
+    //**************************************************************************
+    // Update the largest, leftist, rightist clear sub-segments
+    // found in the tree.
+    //**************************************************************************
+    void updateSegments(Node* node, Segment* pLrg, Segment* pLft, Segment* pRgh) const
+    {
+        if (node != nullptr) {
+            if (node->left == nullptr && node->right == nullptr) {
+                // update the largest non-cyclic segment
+                if (node->segment.length > (*pLrg).length) {
+                    (*pLrg) = node->segment;
+                }
+
+                // update the leftist segment
+                if (node->segment.x1 <= (*pLft).x1) {
+                    (*pLft) = node->segment;
+                }
+
+                // update the rightist segment
+                if ((*pRgh).x2 <= node->segment.x2) {
+                    (*pRgh) = node->segment;
+                }
+            }
+            else {
+                updateSegments(node->left, pLrg, pLft, pRgh);
+                updateSegments(node->right, pLrg, pLft, pRgh);
+            }
+        }
+    }
+};
+//******************************************************************************
+int main() {
+
+    // Open the file
+    ifstream file("/home/uriariel/Documents/sasha_temp/temp.txt");
+
+    // Check if the file was successfully opened
+    if (!file.is_open()) {
+        cout << "Error opening file" << endl;
+        return 1;
+    }
+
+    Tree tree;
+
+    tree.insert(SEG_MIN,SEG_MAX);
+
+    // Read the file line by line
+    string line;
+
+    while (getline(file, line) && (tree.getRoot() != nullptr)) {
+        // Create an input string stream from the line
+        istringstream iss(line);
+
+        // Extract the two floating-point values
+        float x1, x2;
+        iss >> x1 >> x2;
+
+        // Process non-cyclic input
+        if (x1<x2) {
+            tree.insert(x1,x2);
+        }
+        // Process cyclic input
+        else {
+            tree.insert(SEG_MIN,x2);
+            tree.insert(x1,SEG_MAX);
+        }
+    }
+
+    // The largest cyclic sub-segment, clear from any of the input segments
+    Segment largestSeg = tree.getLargestSegment();
+    cout << "the largest clear cyclic sub-segment is [" << largestSeg.x1 << ", " << largestSeg.x2 << "]."<< endl;
+
+    // Close the file
+    file.close();
+    return 0;
+}
